@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+
+<title>Happy Link Match - Pi版</title>
+
+<script src="https://sdk.minepi.com/pi-sdk.js"></script>
+
+<style>
+
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+}
+
+body{
+    background:
+    linear-gradient(180deg,#ffb6d9,#ffd6ea,#fff0f7);
+    font-family:Arial;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    overflow:hidden;
+}
+
+.stars{
+    position:fixed;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+    z-index:0;
+}
+
+.star{
+    position:absolute;
+    width:3px;
+    height:3px;
+    background:white;
+    border-radius:50%;
+    animation:twinkle 3s infinite;
+}
+
+@keyframes twinkle{
+    0%{opacity:0.2}
+    50%{opacity:1}
+    100%{opacity:0.2}
+}
+
+.game-wrap{
+    position:relative;
+    z-index:2;
+    width:95vw;
+    max-width:500px;
+}
+
+.title{
+    text-align:center;
+    font-size:34px;
+    font-weight:bold;
+    color:white;
+    text-shadow:0 0 10px hotpink;
+    margin-bottom:12px;
+}
+
+.pi-box{
+    text-align:center;
+    margin-bottom:14px;
+    color:white;
+    font-weight:bold;
+}
+
+.pi-user{
+    margin-bottom:10px;
+    font-size:18px;
+}
+
+.pi-btn{
+    border:none;
+    padding:12px 18px;
+    border-radius:14px;
+    background:#5b3df5;
+    color:white;
+    font-size:16px;
+    font-weight:bold;
+    cursor:pointer;
+    box-shadow:
+    0 4px 12px rgba(91,61,245,0.4);
+}
+
+.topbar{
+    display:flex;
+    justify-content:space-between;
+    margin-bottom:12px;
+    color:white;
+    font-size:20px;
+    font-weight:bold;
+}
+
+.board{
+    display:grid;
+    grid-template-columns:repeat(6,1fr);
+    gap:8px;
+    background:rgba(255,255,255,0.2);
+    padding:10px;
+    border-radius:25px;
+    backdrop-filter:blur(8px);
+    box-shadow:
+    0 0 20px rgba(255,255,255,0.5);
+}
+
+.cell{
+    aspect-ratio:1/1;
+    background:white;
+    border-radius:18px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:32px;
+    cursor:pointer;
+    transition:0.2s;
+    user-select:none;
+    box-shadow:
+    inset 0 4px 8px rgba(255,255,255,0.8),
+    0 4px 10px rgba(0,0,0,0.15);
+}
+
+.cell:active{
+    transform:scale(0.9);
+}
+
+.selected{
+    transform:scale(1.08);
+    background:#fff6a9;
+    box-shadow:
+    0 0 15px gold;
+}
+
+.matched{
+    animation:pop 0.35s forwards;
+}
+
+@keyframes pop{
+    0%{
+        transform:scale(1);
+        opacity:1;
+    }
+    100%{
+        transform:scale(0);
+        opacity:0;
+    }
+}
+
+.controls{
+    margin-top:15px;
+    display:flex;
+    gap:10px;
+}
+
+button{
+    flex:1;
+    border:none;
+    padding:14px;
+    border-radius:18px;
+    font-size:18px;
+    font-weight:bold;
+    color:white;
+    cursor:pointer;
+    background:
+    linear-gradient(45deg,#ff69b4,#ff1493);
+    box-shadow:
+    0 4px 12px rgba(255,20,147,0.4);
+}
+
+.win{
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.5);
+    display:none;
+    justify-content:center;
+    align-items:center;
+    z-index:10;
+}
+
+.win-box{
+    background:white;
+    padding:30px;
+    border-radius:25px;
+    text-align:center;
+    width:80%;
+    max-width:300px;
+}
+
+.win-box h2{
+    color:#ff1493;
+    margin-bottom:15px;
+}
+
+.win-box p{
+    font-size:20px;
+    margin-bottom:20px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="stars" id="stars"></div>
+
+<div class="game-wrap">
+
+<div class="title">
+Happy Link Match
+</div>
+
+<div class="pi-box">
+
+<div class="pi-user" id="piUser">
+Pi 未登录
+</div>
+
+<button class="pi-btn" id="piLoginBtn">
+Pi 登录
+</button>
+
+</div>
+
+<div class="topbar">
+<div>分数：<span id="score">0</span></div>
+<div>时间：<span id="time">60</span></div>
+</div>
+
+<div class="board" id="board"></div>
+
+<div class="controls">
+<button onclick="shuffleBoard()">洗牌</button>
+<button onclick="restartGame()">重开</button>
+</div>
+
+</div>
+
+<div class="win" id="win">
+
+<div class="win-box">
+
+<h2>恭喜通关</h2>
+
+<p id="finalScore"></p>
+
+<button onclick="restartGame()">
+再玩一次
+</button>
+
+</div>
+
+</div>
+
+<script>
+
+/* Pi 登录 */
+
+let currentUser = null;
+let accessToken = null;
+
+async function initPi(){
+
+    try{
+
+        await Pi.init({
+            version:"2.0",
+            sandbox:true
+        });
+
+        authenticatePi();
+
+    }catch(e){
+
+        console.error("Pi 初始化失败",e);
+    }
+}
+
+async function authenticatePi(){
+
+    try{
+
+        const scopes = ['username'];
+
+        const auth = await Pi.authenticate(
+            scopes,
+            onIncompletePaymentFound
+        );
+
+        currentUser = auth.user;
+
+        accessToken = auth.accessToken;
+
+        document.getElementById("piUser").innerText =
+        "欢迎：" + currentUser.username;
+
+        console.log("Pi 登录成功");
+
+        sendTokenToBackend(accessToken);
+
+    }catch(e){
+
+        console.error("Pi 登录失败",e);
+    }
+}
+
+function onIncompletePaymentFound(payment){
+
+    console.log(payment);
+}
+
+/* 发送 token 到 Render */
+
+async function sendTokenToBackend(token){
+
+    try{
+
+        const response = await fetch(
+            "https://你的render地址.onrender.com/verify-pi-user",
+            {
+                method:"POST",
+
+                headers:{
+                    "Content-Type":"application/json"
+                },
+
+                body:JSON.stringify({
+                    accessToken:token
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        console.log("后端验证成功",data);
+
+    }catch(e){
+
+        console.error("后端验证失败",e);
+    }
+}
+
+document.addEventListener("DOMContentLoaded",()=>{
+
+    initPi();
+
+    document
+    .getElementById("piLoginBtn")
+    .addEventListener("click",authenticatePi);
+});
+
+/* 星空 */
+
+const stars=document.getElementById("stars");
+
+for(let i=0;i<80;i++){
+
+    const s=document.createElement("div");
+
+    s.className="star";
+
+    s.style.left=Math.random()*100+"%";
+
+    s.style.top=Math.random()*100+"%";
+
+    s.style.animationDelay=Math.random()*3+"s";
+
+    stars.appendChild(s);
+}
+
+/* 音效 */
+
+const audioCtx =
+new(window.AudioContext||window.webkitAudioContext)();
+
+function beep(freq){
+
+    const osc=audioCtx.createOscillator();
+
+    const gain=audioCtx.createGain();
+
+    osc.connect(gain);
+
+    gain.connect(audioCtx.destination);
+
+    osc.frequency.value=freq;
+
+    osc.start();
+
+    gain.gain.exponentialRampToValueAtTime(
+        0.0001,
+        audioCtx.currentTime+0.2
+    );
+
+    osc.stop(audioCtx.currentTime+0.2);
+}
+
+/* 游戏 */
+
+const emojis=[
+'🐱','🐶','🐰','🐼',
+'🦊','🐷','🐸','🦄',
+'🍓','🍭','🌈','⭐',
+'🍉','🧸','🐥','🍰',
+'💎','🍒'
+];
+
+const board=document.getElementById("board");
+
+let cells=[];
+
+let first=null;
+
+let second=null;
+
+let lock=false;
+
+let score=0;
+
+let time=60;
+
+let timer;
+
+function initBoard(){
+
+    board.innerHTML="";
+
+    let arr=[...emojis,...emojis];
+
+    arr.sort(()=>Math.random()-0.5);
+
+    cells=[];
+
+    arr.forEach((emoji,index)=>{
+
+        const cell=document.createElement("div");
+
+        cell.className="cell";
+
+        cell.innerText=emoji;
+
+        cell.dataset.emoji=emoji;
+
+        cell.dataset.index=index;
+
+        cell.onclick=()=>selectCell(cell);
+
+        board.appendChild(cell);
+
+        cells.push(cell);
+
+    });
+}
+
+function selectCell(cell){
+
+    if(lock) return;
+
+    if(cell.classList.contains("matched")) return;
+
+    if(first===cell) return;
+
+    beep(500);
+
+    cell.classList.add("selected");
+
+    if(!first){
+
+        first=cell;
+
+        return;
+    }
+
+    second=cell;
+
+    checkMatch();
+}
+
+function checkMatch(){
+
+    lock=true;
+
+    if(first.dataset.emoji===second.dataset.emoji){
+
+        beep(800);
+
+        score+=10;
+
+        document.getElementById("score").innerText=score;
+
+        setTimeout(()=>{
+
+            first.classList.add("matched");
+
+            second.classList.add("matched");
+
+            first.style.visibility="hidden";
+
+            second.style.visibility="hidden";
+
+            resetSelect();
+
+            checkWin();
+
+        },300);
+
+    }else{
+
+        beep(200);
+
+        setTimeout(()=>{
+
+            first.classList.remove("selected");
+
+            second.classList.remove("selected");
+
+            resetSelect();
+
+        },500);
+    }
+}
+
+function resetSelect(){
+
+    first=null;
+
+    second=null;
+
+    lock=false;
+}
+
+function checkWin(){
+
+    const left=cells.filter(c=>
+        !c.classList.contains("matched")
+    );
+
+    if(left.length===0){
+
+        clearInterval(timer);
+
+        document.getElementById("finalScore").innerText =
+        "你的得分："+score;
+
+        document.getElementById("win").style.display="flex";
+    }
+}
+
+function shuffleBoard(){
+
+    beep(900);
+
+    const active=cells.filter(c=>
+        !c.classList.contains("matched")
+    );
+
+    const values=active.map(c=>c.dataset.emoji);
+
+    values.sort(()=>Math.random()-0.5);
+
+    active.forEach((c,i)=>{
+
+        c.dataset.emoji=values[i];
+
+        c.innerText=values[i];
+    });
+}
+
+function startTimer(){
+
+    clearInterval(timer);
+
+    time=60;
+
+    document.getElementById("time").innerText=time;
+
+    timer=setInterval(()=>{
+
+        time--;
+
+        document.getElementById("time").innerText=time;
+
+        if(time<=0){
+
+            clearInterval(timer);
+
+            alert("时间到啦");
+
+            restartGame();
+        }
+
+    },1000);
+}
+
+function restartGame(){
+
+    score=0;
+
+    document.getElementById("score").innerText=0;
+
+    document.getElementById("win").style.display="none";
+
+    initBoard();
+
+    startTimer();
+}
+
+restartGame();
+
+</script>
+
+</body>
+</html>
